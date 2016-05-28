@@ -1,0 +1,139 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Smita"
+date: "27 May 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+##Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+##Goal
+The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. Model on traning data to predict the test data.
+
+##Analysis
+We first Install the required packages
+```{r message=FALSE,warning=FALSE}
+library(caret)
+library(rattle)
+library(rpart)
+library(randomForest)
+library(MASS)
+```
+###Step1 : Download the training data and divide it training,testing and validation data.
+```{r }
+if (!file.exists("pml-training.csv")) {
+trainURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(trainURL,destfile="pml-training.csv")
+}
+dat = read.csv("pml-training.csv")
+```
+
+Quick look at the data shows most of the columns are NA and so can be dropped. Also the first 7 columns are just the user details and timestamps which we do not need to predict the manner of exercise.
+
+```{r}
+dat1 <- subset(dat,select=c(8:11,37:49,60:68,84:86,102,113:124,140,151:160))
+inTrain <- createDataPartition(dat1$classe,p=0.75,list=FALSE)
+validData <- dat1[-inTrain,]
+dat1 <- dat1[inTrain,]
+inTrain <- createDataPartition(dat1$classe,p=0.75,list=FALSE)
+trainData <- dat1[inTrain,]
+testData <- dat1[-inTrain,]
+```
+
+###Step2 : Build model using traning data and predict the test data. Verify the accuracy.
+#### We first try the rpart method since our object is to classify.
+```{r  message=FALSE}
+modFit <- train(trainData$classe ~ ., data = trainData, method="rpart")
+fancyRpartPlot(modFit$finalModel)
+print(modFit,digit=3)
+
+#Predict against training and testing data
+trainPredict <- predict(modFit,trainData)
+testPredict <- predict(modFit,testData)
+
+#check accuracy
+confusionMatrix(trainPredict,trainData$classe)$overall[1]
+confusionMatrix(testPredict,testData$classe)$overall[1]
+```
+
+Very low accuracy, try incorporating pre processing and cross validation
+```{r }
+modFit <- train(trainData$classe ~ .,preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 4), data = trainData, method="rpart")
+print(modFit,digit=3)
+
+trainPredict <- predict(modFit,trainData)
+confusionMatrix(trainPredict,trainData$classe)$overall[1]
+```
+There is no improvement in accuracy, so we try another method
+
+## Repeat Step2 with method LDA
+```{r }
+modFit <- train(trainData$classe ~ ., data = trainData, method="lda")
+print(modFit,digit=3)
+
+trainPredict <- predict(modFit,trainData)
+testPredict <- predict(modFit,testData)
+
+confusionMatrix(trainPredict,trainData$classe)$overall[1]
+confusionMatrix(testPredict,testData$classe)$overall[1]
+# Accuracy better than rpart but not satisfactory
+
+modFit <- train(trainData$classe ~ .,preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 4), data = trainData, method="lda")
+print(modFit,digit=3)
+
+trainPredict <- predict(modFit,trainData)
+confusionMatrix(trainPredict,trainData$classe)$overall[1]
+```
+The accuracy is not satisfactory. We try another method.
+
+## Repeat step 2 with method RF
+```{r }
+modFit <- train(trainData$classe ~ ., data = trainData, method="rf",ntree=100,preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 4))
+
+print(modFit,digit=3)
+
+
+trainPredict <- predict(modFit,trainData)
+testPredict <- predict(modFit,testData)
+
+confusionMatrix(trainPredict,trainData$classe)$overall[1]
+accuracy <- confusionMatrix(testPredict,testData$classe)$overall[1]
+```
+Accuracy of ```r accuracy```is satisfactory. So we finalise the Random forest to predict our data.
+
+###Step 3 Calculate out of sample error.
+We haven't used the validation data in building the model so we can use the validation data to find out of sample error
+```{r }
+validPredict <- predict(modFit,validData)
+accuracy <- confusionMatrix(validPredict,validData$classe)$overall[1]
+```
+Error rate is (1-accuracy) i.e 1-```r accuracy```= ```r 1-accuracy```
+
+### Step 4 : Final step, Predict the 20 test cases
+
+```{r }
+#Download the testing data
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(testUrl,destfile="pml-testing.csv")
+testingData <- read.csv("pml-testing.csv")
+testingData1 <- subset(testingData,select=c(8:11,37:49,60:68,84:86,102,113:124,140,151:160))
+#Use the model to predict the testing data.
+finalPredict <- predict(modFit,newdata=testingData1)
+print(finalPredict)
+``` 
